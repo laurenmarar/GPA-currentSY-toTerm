@@ -1,11 +1,19 @@
 IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
    DROP TABLE #tempPercent  
 
-   IF OBJECT_ID('tempdb..#tempSectionPercent') IS NOT NULL
+IF OBJECT_ID('tempdb..#tempSectionPercent') IS NOT NULL
    DROP TABLE #tempSectionPercent  
 
+/********************************************************************************
+ *    Create a table to show all quarter and exam grades with their weights     *
+ *    Only for Q1 and Q2.   Edit code to add other terms                        *
+ ********************************************************************************/
 		select
-				r.personID, s.firstName,s.lastName,s.grade,sec.courseID,
+				r.personID, 
+				s.firstName,
+				s.lastName,
+				s.grade,
+				sec.courseID,
 				r.sectionID,
 				gs.[percent],
 				case when gs.[percent] IS NULL then 0 else gtcalc.[weight] end as [weight],
@@ -34,7 +42,8 @@ IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
 				where term.name in ('Q1','Q2')
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-		select personID,sectionID,courseID,case when sum([weight])=0 then NULL else sum(weightedPercent)/sum([weight]) end as sectionPercent
+		select personID,sectionID,courseID,
+		case when sum([weight])=0 then NULL else sum(weightedPercent)/sum([weight]) end as sectionPercent -- creates overall percents for each student's sections
 		
 		INTO #tempSectionPercent
 		
@@ -43,11 +52,13 @@ IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
 		group by personID,courseID,sectionID
 		order by personID
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
-	select wgpasum.personID,wgpasum.weightedGPA,s.studentNumber,s.firstName,s.lastName,s.grade from (
+	select wgpasum.personID,wgpasum.weightedGPA,s.studentNumber,s.firstName,s.lastName,s.grade from 
+	(
 		select wgpa.personID,sum(wgpa.gpaValue*wgpa.gpaWeight)/sum(wgpa.gpaWeight) as weightedGPA
 			from	
-			(select personID,courseID,
-				sectionID,sectionPercent,mpt.scoreGroupID,MaxPercent,sli.gpaValue,
+			(  --this subquery gives the semester grades for each class
+			select personID,courseID,
+				sectionID,sectionPercent,mpt.scoreGroupID,MaxPercent,sli.score,sli.gpaValue,
 				gpaWeight,
 				gpaWeight*sli.gpaValue as weightedGPA
 				from 
@@ -59,11 +70,12 @@ IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
 				join scoreListItem sli on sli.scoreGroupID=gtc.scoreGroupID and tsp.sectionPercent>=sli.minPercent
 				group by personID,c.courseID,c.gpaWeight,sectionID,sectionPercent,sli.scoreGroupID) mpt 
 			
-				join scoreListItem sli on sli.scoreGroupID=mpt.scoreGroupID and mpt.maxPercent=sli.minPercent and sli.gpaValue IS NOT NULL) wgpa
+				join scoreListItem sli on sli.scoreGroupID=mpt.scoreGroupID and mpt.maxPercent=sli.minPercent and sli.gpaValue IS NOT NULL
+			) wgpa
 				group by wgpa.personID
-				) wgpasum
-				join student s on wgpasum.personID=s.personID and s.activeYear=1 and s.serviceType='P'
-				order by lastName,firstName
+	) wgpasum
+	join student s on wgpasum.personID=s.personID and s.activeYear=1 and s.serviceType='P'
+	order by lastName,firstName
 
 IF OBJECT_ID('tempdb..#tempSectionPercent') IS NOT NULL
    DROP TABLE #tempSectionPercent  
