@@ -1,0 +1,72 @@
+IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
+   DROP TABLE #tempPercent  
+
+   IF OBJECT_ID('tempdb..#tempSectionPercent') IS NOT NULL
+   DROP TABLE #tempSectionPercent  
+
+		select
+				r.personID, s.firstName,s.lastName,s.grade,sec.courseID,
+				r.sectionID,
+				gs.[percent],
+				case when gs.[percent] IS NULL then 0 else gtcalc.[weight] end as [weight],
+				coalesce(gs.[percent],0)*(gtcalc.[weight]) as weightedPercent,
+				gs.taskID,
+				gs.termID,term.name as Term
+
+				INTO  #tempPercent 
+
+				from 
+				roster r 
+				join section sec on sec.sectionID=r.sectionID and (r.startdate<=getdate() or r.startdate IS NULL) and (r.enddate>=getdate() or r.enddate IS NULL)
+				
+				join student s on r.personID=s.personID and s.activeYear=1 and s.calendarID<>38
+
+				join calendar cal on cal.calendarID=s.calendarID and cal.endyear=s.endyear
+				join trial t on r.trialID=t.trialID and t.active=1 
+
+				left join gradingScore gs on gs.sectionID=r.sectionID and gs.personID=r.personID and gs.taskID in (1,4)--gt.name='Final Grade'
+				join term term on term.termID=gs.termID
+				
+				join 
+					(select distinct childTaskID,childTermID,weight,sectionID from GradingTaskCalculation) gtcalc
+					on gtcalc.childTermID=gs.termID and gtcalc.childTaskID=gs.taskID and gtcalc.sectionID=gs.sectionID
+				
+				where term.name in ('Q1','Q2')
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+		select personID,sectionID,courseID,case when sum([weight])=0 then NULL else sum(weightedPercent)/sum([weight]) end as sectionPercent
+		
+		INTO #tempSectionPercent
+		
+		from #tempPercent tp
+		
+		group by personID,courseID,sectionID
+		order by personID
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+	select wgpasum.personID,wgpasum.weightedGPA,s.studentNumber,s.firstName,s.lastName,s.grade from (
+		select wgpa.personID,sum(wgpa.gpaValue*wgpa.gpaWeight)/sum(wgpa.gpaWeight) as weightedGPA
+			from	
+			(select personID,courseID,
+				sectionID,sectionPercent,mpt.scoreGroupID,MaxPercent,sli.gpaValue,
+				gpaWeight,
+				gpaWeight*sli.gpaValue as weightedGPA
+				from 
+			
+				(select personID,c.courseID,c.gpaWeight,sectionID,sectionPercent,sli.scoreGroupID,max(sli.minPercent) as MaxPercent
+				from #tempSectionPercent tsp
+				join course c on tsp.courseID=c.courseID
+				join gradingTaskCredit gtc on gtc.courseID=c.courseID
+				join scoreListItem sli on sli.scoreGroupID=gtc.scoreGroupID and tsp.sectionPercent>=sli.minPercent
+				group by personID,c.courseID,c.gpaWeight,sectionID,sectionPercent,sli.scoreGroupID) mpt 
+			
+				join scoreListItem sli on sli.scoreGroupID=mpt.scoreGroupID and mpt.maxPercent=sli.minPercent and sli.gpaValue IS NOT NULL) wgpa
+				group by wgpa.personID
+				) wgpasum
+				join student s on wgpasum.personID=s.personID and s.activeYear=1 and s.serviceType='P'
+				order by lastName,firstName
+
+IF OBJECT_ID('tempdb..#tempSectionPercent') IS NOT NULL
+   DROP TABLE #tempSectionPercent  
+
+IF OBJECT_ID('tempdb..#tempPercent') IS NOT NULL
+   DROP TABLE #tempPercent
